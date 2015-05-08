@@ -25,4 +25,4 @@ Features:
 TODO:
 + Replace stock models of the new parts with real models.
 
-If you have any problems with this mod or would like to suggest an improvement, please go to the official [forum thread](...) or open a new ticket on [Github](https://github.com/mmoench/CLLS).
+If you have any problems with this mod or would like to suggest an improvement, please go to the official [forum thread](http://forum.kerbalspaceprogram.com/threads/120281-1-0-x-Closed-Loop-Life-Support-v0-1) or open a new ticket on [Github](https://github.com/mmoench/CLLS).
