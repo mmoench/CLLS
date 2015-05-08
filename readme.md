@@ -4,6 +4,8 @@
 
 *Closed Loop Life Support* (or CLLS) is a simple life support mod for [Kerbal Space Program](https://kerbalspaceprogram.com), providing the necessary parts and resources to to simulate life support consumption and production during long voyages through space.
 
+![CLLS in action](http://i.imgur.com/xPWDlK4l.png)
+
 ## Requirements
 
 + [Module Manager](https://github.com/sarbian/ModuleManager)
