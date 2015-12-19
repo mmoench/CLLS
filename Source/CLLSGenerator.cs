@@ -159,6 +159,9 @@ namespace CLLS
                     // We will produce less life support if we don't receive the full amount of electricity:
                     efficiency = electricityReceived / (electricityConsumptionPerSecond * TimeWarp.fixedDeltaTime);
                     currentProductionRatePerDay = lifeSupportGeneratedPerDay * efficiency;
+
+                    // Create heat:
+//                    this.part.temperature += 1; // TODO: NO! Do this differently
                 }
             }
             catch (Exception e)

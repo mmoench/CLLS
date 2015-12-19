@@ -21,7 +21,7 @@ namespace CLLS
             {
                 // We don't need to keep track of unowned or unkerbaled vessels:
                 if (vessel == null) continue;
-                if (vessel.vesselType == VesselType.Flag || vessel.vesselType == VesselType.SpaceObject || vessel.vesselType == VesselType.Unknown) continue;
+                if (vessel.vesselType == VesselType.Flag || vessel.vesselType == VesselType.SpaceObject || vessel.vesselType == VesselType.Unknown || vessel.vesselType == VesselType.Debris ) continue;
                 if (GetCrewCount(vessel) <= 0) continue;
 
                 TrackedVessel tracking = new TrackedVessel();

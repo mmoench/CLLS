@@ -21,8 +21,10 @@ namespace CLLS
         {
             if (initialized) return;
             DontDestroyOnLoad(this);
-            CancelInvoke();
-            InvokeRepeating("Update", 1, 1); // once every second.
+            if (!IsInvoking("Update"))
+            {
+                InvokeRepeating("Update", 1, 1); // once every second.
+            }
             initialized = true;
         }
 
@@ -39,7 +41,7 @@ namespace CLLS
                 double timeElapsed = timeNow - lastUpdate;
                 if (timeElapsed < 0) { lastUpdate = Planetarium.GetUniversalTime(); return; } // After reverting time.
                 if (timeElapsed == 0) return; // Called twice maybe? Should not happen.
-                if (timeElapsed < (TimeWarp.CurrentRate * 0.5)) return; // Only update once per 0.5 real-time seconds, even during time-warp.
+                if (timeElapsed < (TimeWarp.CurrentRate * 1.0)) return; // Only update once per real-time seconds, even during time-warp.
                 lastUpdate = timeNow;
 
                 // Update resources on all tracked vessels:
