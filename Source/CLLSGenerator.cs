@@ -12,30 +12,41 @@ namespace CLLS
     [KSPModule("CLLS Generator")]
     public class CLLSGenerator : PartModule
     {
+        // The following fields are just for show:
         [KSPField]
         public string producerName = "Life Support Generator";
 
         [KSPField(guiActive = true, guiName = "State", isPersistant = false)]
         public string displayStatus;
 
-        [KSPField(guiActive = true, guiName = "Production Rate", guiUnits = "/day", guiFormat = "F2", isPersistant = false)]
+        [KSPField(guiActive = true, guiName = "Life Support", guiUnits = "/day", guiFormat = "F2", isPersistant = false)]
         public float currentProductionRatePerDayGui = 0;
+
+        [KSPField(guiActive = true, guiName = "Electricity", guiUnits = "/sec", guiFormat = "F2", isPersistant = false)]
+        public float currentElectricityRatePerSecGui = 0;
 
         [KSPField(guiActive = true, guiName = "Production Efficiency", guiUnits = "", guiFormat = "P", isPersistant = false)]
         public float efficiencyGui = 0;
 
+        // This slider can be used to set the production rate:
+        [KSPField(guiActive = true, guiActiveEditor = true, guiName = "Production Rate", guiFormat = "F1", guiUnits = "%", isPersistant = true)]
+        [UI_FloatRange(maxValue = 100, minValue = 0, scene = UI_Scene.All, stepIncrement = 0.1f)]
+        public float productionRate = 100;
+
+        // These fields are used to cache the current settings and are used in the background-processing:
         [KSPField(isPersistant = true)]
-        public double currentProductionRatePerDay = 0;
+        public double currentProductionRatePerDay = 0; // The rate is set by the player via the slider above.
 
         [KSPField(isPersistant = true)]
-        public double efficiency = 0;
+        public double currentElectricityRatePerSec = 0;
+
+        [KSPField(isPersistant = true)]
+        public double efficiency = 0; // The efficiency is calculated at runtime when the vessel produced less electricity than is consumed.
 
         [KSPField(isPersistant = true)]
         public bool isRunning = false;
 
-        [KSPField]
-        public string startStopAnimation = string.Empty;
-
+        // These fields are set externaly by the part's config:
         [KSPField]
         public double lifeSupportGeneratedPerDay = 0.0;
 
@@ -59,7 +70,6 @@ namespace CLLS
         public void StartUp()
         {
             isRunning = true;
-            RunAnimation(false);
             UpdateGUI();
         }
 
@@ -67,7 +77,6 @@ namespace CLLS
         public void ShutDown()
         {
             isRunning = false;
-            RunAnimation(true);
             UpdateGUI();
         }
 
@@ -75,7 +84,6 @@ namespace CLLS
         public void Toggle(KSPActionParam param)
         {
             isRunning = !isRunning;
-            RunAnimation(!isRunning);
             UpdateGUI();
         }
 
@@ -85,7 +93,6 @@ namespace CLLS
             if (state != StartState.Editor)
             {
                 UpdateGUI();
-                if (isRunning) RunAnimation(false, 10000); // Quick-run start-animation on load if the part is already running.
                 this.part.force_activate(); // Activate the part so it will run OnFixedUpdate for each physics-tick.
             }
         }
@@ -107,36 +114,14 @@ namespace CLLS
 
             // KSP-Gui elements only work with float, but we are using double, so we use extra varaiables for dispalying these values:
             efficiencyGui = (float)efficiency;
-            currentProductionRatePerDayGui = (float)currentProductionRatePerDay;
+            currentProductionRatePerDayGui = (float)(currentProductionRatePerDay * (6f / CLLS.GetDayLength())); // Maybe convert this to 24 hour days
+            currentElectricityRatePerSecGui = (float)currentElectricityRatePerSec;
         }
 
         public override void OnUpdate()
         {
             base.OnUpdate();
             UpdateGUI();
-        }
-
-        public void RunAnimation(bool reverse=false, float speed=1)
-        {
-            if (string.IsNullOrEmpty(startStopAnimation)) return;
-
-            // Set up the animation:
-            Animation[] animators = part.FindModelAnimators(startStopAnimation);
-            Animation animation;
-            if (animators.Length > 0) animation = animators[0];
-            else return;
-            animation[startStopAnimation].wrapMode = WrapMode.Once;
-
-            if (reverse)
-            {
-                if (animation[startStopAnimation].time == 0) animation[startStopAnimation].time = animation[startStopAnimation].length;
-                animation[startStopAnimation].speed = -speed;
-            }
-            else
-            {
-                animation[startStopAnimation].speed = speed;
-            }
-            animation.Play(startStopAnimation);
         }
 
         // Is called on each physics-tick while the vessel is active.
@@ -147,26 +132,37 @@ namespace CLLS
                 if (!isRunning)
                 {
                     currentProductionRatePerDay = 0;
+                    currentElectricityRatePerSec = 0;
                     efficiency = 0;
                 }
                 else
                 {
                     // Comsume electricity; we can't do this in our background-process because all other
                     // electricity producing parts are only running while the vessel is loaded:
-                    if (electricityConsumptionPerSecond <= 0) return;
-                    double electricityReceived = this.part.RequestResource("ElectricCharge", TimeWarp.fixedDeltaTime * electricityConsumptionPerSecond); // Scale the amount with while in time-warp.
+                    double rate = (productionRate / 100d);
+                    currentElectricityRatePerSec = electricityConsumptionPerSecond * rate;
 
-                    // We will produce less life support if we don't receive the full amount of electricity:
-                    efficiency = electricityReceived / (electricityConsumptionPerSecond * TimeWarp.fixedDeltaTime);
-                    currentProductionRatePerDay = lifeSupportGeneratedPerDay * efficiency;
+                    if (currentElectricityRatePerSec <= 0)
+                    {
+                        currentElectricityRatePerSec = 0;
+                        currentProductionRatePerDay = 0;
+                        efficiency = 1;
+                    }
+                    else
+                    {
 
-                    // Create heat:
-//                    this.part.temperature += 1; // TODO: NO! Do this differently
+                        double electricityRequested = TimeWarp.fixedDeltaTime * currentElectricityRatePerSec;
+                        double electricityReceived = this.part.RequestResource("ElectricCharge", electricityRequested); // Scale the amount with while in time-warp.
+
+                        // We will produce less life support if we don't receive the full amount of electricity:
+                        efficiency = electricityReceived / electricityRequested;
+                        currentProductionRatePerDay = lifeSupportGeneratedPerDay * rate * efficiency;
+                    }
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("[CLLS] OnFixedUpdate(): " + e.ToString());
+                Debug.LogError("[CLLS] CLLSGenerator.OnFixedUpdate(): " + e.ToString());
             }
         }
     }

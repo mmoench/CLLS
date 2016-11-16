@@ -34,6 +34,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\KSP\KSP_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
+    <Reference Include="KSPAssets">
+      <HintPath>..\..\KSP\KSP_Data\Managed\KSPAssets.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -44,19 +47,22 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\KSP\KSP_Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>..\..\KSP\KSP_Data\Managed\UnityEngine.UI.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CLLS.cs" />
     <Compile Include="CLLSConsumer.cs" />
     <Compile Include="CLLSGenerator.cs" />
     <Compile Include="EVA.cs" />
-    <Compile Include="Monitor.cs" />
+    <Compile Include="GUI.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="TrackedVessel.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy /Y "$(TargetPath)" "D:\KSP - Dev\CLLS\GameData\CLLS\$(TargetFileName)" &amp;&amp; rd /Q /S "D:\KSP - Dev\KSP\GameData\CLLS\*" &amp;&amp; xcopy /E /Y "D:\KSP - Dev\CLLS\GameData\CLLS\*" "D:\KSP - Dev\KSP\GameData\CLLS\"</PostBuildEvent>
+    <PostBuildEvent>copy /Y "$(TargetPath)" "D:\KSP\CLLS\GameData\CLLS\$(TargetFileName)" &amp;&amp; xcopy /Y /E "D:\KSP\CLLS\GameData\CLLS\*" "D:\KSP\KSP\GameData\CLLS\"</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

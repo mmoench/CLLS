@@ -20,17 +20,10 @@ namespace CLLS
             GameEvents.onCrewOnEva.Add(OnCrewOnEva);
             GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
             GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
-            GameEvents.OnVesselRecoveryRequested.Add(OnRecoveryRequested);
 
-            // Add life support ressources to EVA-parts (males and females have different parts):
+            // Add life support ressources to EVA-parts (males and females have different "parts"):
             addLSResources("kerbalEVA");
             addLSResources("kerbalEVAfemale");
-        }
-
-        private void OnRecoveryRequested(Vessel vessel)
-        {
-            // Reenable disabled crewmembers on pickup:
-            TrackedVessel.UpdateCrew(vessel, true);
         }
 
         private void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> action)
@@ -41,7 +34,7 @@ namespace CLLS
                 double lifeSupport = 0.0;
                 foreach (PartResource resource in action.from.Resources)
                 {
-                    if (resource && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
+                    if (resource != null && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
                     {
                         lifeSupport += resource.amount;
                     }
@@ -59,13 +52,13 @@ namespace CLLS
         {
             try
             {
-                // Check how much life support the kerbal and the ship has:
+                // Check how much life support the kerbal and the ship have:
                 double lifeSupportShip = 0.0;
                 double lifeSupportKerbal = 0.0;
                 double lifeSupportKerbalMax = 0.0;
                 foreach (PartResource resource in action.to.Resources)
                 {
-                    if (resource && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
+                    if (resource != null && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
                     {
                         lifeSupportKerbal += resource.amount;
                         lifeSupportKerbalMax += resource.maxAmount;
@@ -73,7 +66,7 @@ namespace CLLS
                 }
                 foreach (PartResource resource in action.from.Resources)
                 {
-                    if (resource && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
+                    if (resource != null && resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
                     {
                         lifeSupportShip += resource.amount;
                     }
@@ -115,14 +108,11 @@ namespace CLLS
                 // Add CLLS-module:
                 PartLoader.getPartInfoByName(partName).partPrefab.AddModule(typeof(CLLSProvider).Name);
 
-                // Add resource storage capacity:
-                PartResource LifeSupport = PartLoader.getPartInfoByName(partName).partPrefab.gameObject.AddComponent<PartResource>();
-                LifeSupport.SetInfo(PartResourceLibrary.Instance.resourceDefinitions[CLLS.RESOURCE_LIFE_SUPPORT]);
-                LifeSupport.maxAmount = 1.0f; // Enough for 1 day (6 hours).
-                LifeSupport.flowState = true;
-                LifeSupport.flowMode = PartResource.FlowMode.Both;
-                LifeSupport.part = PartLoader.getPartInfoByName(partName).partPrefab;
-                LifeSupport.amount = 0.0f; // Empty by default.
+                ConfigNode resourceNode = new ConfigNode();
+                resourceNode.AddValue("name", "LifeSupport");
+                resourceNode.AddValue("amount", 0); // Empty by default.
+                resourceNode.AddValue("maxAmount", CLLS.LIFE_SUPPORT_PER_KERBAL_PER_HOUR * 6); // Enough for 1 Kerbin-day.
+                PartLoader.getPartInfoByName(partName).partPrefab.AddResource(resourceNode);
             }
             catch (Exception e)
             {

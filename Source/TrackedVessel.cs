@@ -8,360 +8,284 @@ namespace CLLS
 {
     public class TrackedVessel
     {
-        public const String RESOURCE_LIFE_SUPPORT = "LifeSupport";
+        public Vessel vessel;           // The vessel which we are tracking
+        public double lastUpdate;       // UTC when the vessel was last updated
+        public int cachedCrewCount;
+        public int cachedCrewCapacity;
+        public double cachedLifeSupportDeltaPerHour;
+        public double cachedLifeSupport;
+        public double cachedMaxLifeSupport;
 
-        public Vessel Vessel { get; set; }
-
-        // Returns a list of all vessels for which we should make life support calculations.
-        public static List<TrackedVessel> GetTrackedVessels()
+        public static TrackedVessel CreateFromVessel(Vessel vessel)
         {
-            List<TrackedVessel> vessels = new List<TrackedVessel>();
+            TrackedVessel trackedVessel = new TrackedVessel();
+            trackedVessel.vessel = vessel;
+            trackedVessel.UpdateCachedValues(); // Initialize the tracking
+            return trackedVessel;
+        }
 
-            foreach (Vessel vessel in FlightGlobals.Vessels)
+        public double CalculateCurrentLifeSupportAmount()
+        {
+            if (cachedCrewCount == 0 && cachedLifeSupportDeltaPerHour == 0) return cachedLifeSupport;
+            double timeDelta = Planetarium.GetUniversalTime() - lastUpdate;
+            if (timeDelta <= 0) return cachedLifeSupport;
+            double currentLifeSupport = cachedLifeSupport + (cachedLifeSupportDeltaPerHour / (60*60)) * timeDelta;
+            if (currentLifeSupport < 0) currentLifeSupport = 0;
+            else if (currentLifeSupport > cachedMaxLifeSupport) currentLifeSupport = cachedMaxLifeSupport;
+            return currentLifeSupport;
+        }
+
+        // Checks if the given vessel is owned by the player:
+        public bool IsUnowned()
+        {
+            if (vessel.loaded) return false;
+            foreach (ProtoPartSnapshot protoPart in vessel.protoVessel.protoPartSnapshots)
             {
-                // We don't need to keep track of unowned or unkerbaled vessels:
-                if (vessel == null) continue;
-                if (vessel.vesselType == VesselType.Flag || vessel.vesselType == VesselType.SpaceObject || vessel.vesselType == VesselType.Unknown || vessel.vesselType == VesselType.Debris ) continue;
-                if (GetCrewCount(vessel) <= 0) continue;
-
-                TrackedVessel tracking = new TrackedVessel();
-                tracking.Vessel = vessel;
-                vessels.Add(tracking);
+                if (protoPart.protoModuleCrew == null) continue;
+                foreach (ProtoCrewMember crewMember in protoPart.protoModuleCrew)
+                {
+                    if (crewMember.type == ProtoCrewMember.KerbalType.Unowned) return true;
+                }
             }
-
-            return vessels;
+            return false;
         }
 
-        public int GetCrewCount()
+        // Adds or subtracts life-support from the vessel:
+        private void RequestLifeSupport(double lifeSupportDelta)
         {
-            return GetCrewCount(this.Vessel);
-        }
-
-        public double GetLifeSupportCount()
-        {
-            return GetLifeSupportCount(this.Vessel);
-        }
-
-        public double GetMaxLifeSupportCount()
-        {
-            return GetMaxLifeSupportCount(this.Vessel);
-        }
-
-        // Returns the number of kerbals onboard the given vessel:
-        public static int GetCrewCount(Vessel vessel){
-            if (!vessel.loaded)
+            // Depending on whether the vessel is active or not, we have to work with the object itself or the proto-snapshot:
+            if (vessel.loaded)
             {
-                return vessel.protoVessel.GetVesselCrew().Count;
+                // On active vessels we can simply request the total amount from the root-part:
+                vessel.rootPart.RequestResource(CLLS.RESOURCE_LIFE_SUPPORT, -lifeSupportDelta);
             }
             else
             {
-                return vessel.GetCrewCount();
+                // Update all parts individually:
+                foreach (ProtoPartSnapshot protoPart in vessel.protoVessel.protoPartSnapshots)
+                {
+                    if (protoPart.resources == null) continue;
+                    foreach (ProtoPartResourceSnapshot protoResource in protoPart.resources)
+                    {
+                        if (protoResource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
+                        {
+                            double storageCapacity = protoResource.maxAmount - protoResource.amount;
+                            double partDelta = 0;
+                            if (lifeSupportDelta < 0 && protoResource.amount > 0)
+                            {
+                                if (protoResource.amount + lifeSupportDelta < 0) partDelta = -protoResource.amount;
+                                else partDelta = lifeSupportDelta;
+                                lifeSupportDelta -= partDelta;
+                            }
+                            else if (lifeSupportDelta > 0 && storageCapacity > 0)
+                            {
+                                if (lifeSupportDelta > storageCapacity) partDelta = storageCapacity;
+                                else partDelta = lifeSupportDelta;
+                                lifeSupportDelta -= partDelta;
+                            }
+
+                            protoResource.amount += partDelta;
+                            if (protoResource.amount < 0) protoResource.amount = 0;
+                        }
+                    }
+                }
             }
+            UpdateCachedValues();
         }
 
-        public double GetLifeSupportConsumptionPerDay()
-        {
-            return GetLifeSupportConsumptionPerDay(Vessel);
-        }
-
-        public static double GetLifeSupportConsumptionPerDay(Vessel vessel)
-        {
-            if (TrackedVessel.IsAtHome(vessel)) return 0.0; // No consumption when landed on kerbin.
-            return TrackedVessel.GetCrewCount(vessel); // 1 unit per kerbal per day.
-        }
-
-        // Returns how many resources of the given type the vessel has left.
-        public static double GetLifeSupportCount(Vessel vessel)
+        public void Update()
         {
             try
             {
-                string resource = RESOURCE_LIFE_SUPPORT;
-                double resourceSum = 0.0;
-                if (vessel.loaded)
+                if (vessel == null || vessel.name == null) return; // This should not happen, but better safe than sorry.
+                double lifeSupportLeft = CalculateCurrentLifeSupportAmount();
+                double lifeSupportDelta = lifeSupportLeft - cachedLifeSupport;
+
+                // If the vessel is unowned, don't reduce the life-support, also add some if it was just created:
+                if (!vessel.loaded && IsUnowned())
                 {
-                    // The vessel is loaded, itrate through the objects:
-                    foreach (Part part in vessel.parts)
+                    if (lifeSupportLeft <= 0)
                     {
-                        foreach (PartResource partResource in part.Resources)
-                        {
-                            if (partResource.resourceName.Equals(resource))
-                            {
-                                if (partResource.flowState)
-                                {
-                                    resourceSum += partResource.amount;
-                                }
-                            }
-                        }
+                        Debug.Log("[CLLS] setting life support to " + cachedMaxLifeSupport.ToString() + " for unowned vessel " + vessel.vesselName);
+                        RequestLifeSupport(cachedMaxLifeSupport);
                     }
                 }
                 else
                 {
-                    // The vessel is not loaded, parse the stored values:
-                    foreach (ProtoPartSnapshot proto in vessel.protoVessel.protoPartSnapshots)
-                    {
-                        foreach (ProtoPartResourceSnapshot protoResource in proto.resources)
-                        {
-                            if (protoResource.resourceName.Equals(resource))
-                            {
-                                ConfigNode configNode = protoResource.resourceValues;
-                                double amount = 0;
-                                System.Double.TryParse(configNode.GetValue("amount"), out amount);
-                                resourceSum += amount;
-                            }
-                        }
-                    }
+                    RequestLifeSupport(lifeSupportDelta);
+                    if (cachedLifeSupport <= 0 && cachedCrewCount > 0) KillCrew();
                 }
-                return resourceSum;
-            }
-            catch(Exception e)
-            {
-                Debug.LogError("[CLLS] GetLifeSupportCount(" + vessel.GetName() + "): " + e.ToString());
-                return 0.0;
-            }
-        }
-
-        // Returns how many resources of the given type the vessel can hold.
-        public static double GetMaxLifeSupportCount(Vessel vessel)
-        {
-            try
-            {
-                string resource = RESOURCE_LIFE_SUPPORT;
-                double resourceSum = 0.0;
-                if (vessel.loaded)
-                {
-                    // The vessel is loaded, itrate through the objects:
-                    foreach (Part part in vessel.parts)
-                    {
-                        foreach (PartResource partResource in part.Resources)
-                        {
-                            if (partResource.resourceName.Equals(resource))
-                            {
-                                if (partResource.flowState)
-                                {
-                                    resourceSum += partResource.maxAmount;
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // The vessel is not loaded, parse the stored values:
-                    foreach (ProtoPartSnapshot proto in vessel.protoVessel.protoPartSnapshots)
-                    {
-                        foreach (ProtoPartResourceSnapshot protoResource in proto.resources)
-                        {
-                            if (protoResource.resourceName.Equals(resource))
-                            {
-                                ConfigNode configNode = protoResource.resourceValues;
-                                double amount = 0;
-                                System.Double.TryParse(configNode.GetValue("maxAmount"), out amount);
-                                resourceSum += amount;
-                            }
-                        }
-                    }
-                }
-                return resourceSum;
             }
             catch (Exception e)
             {
-                Debug.LogError("[CLLS] GetMaxLifeSupportCount(" + vessel.GetName() + "): " + e.ToString());
-                return 0.0;
+                Debug.LogError("[CLLS] TrackedVessel.Update(" + vessel.id + "): " + e.ToString());
             }
         }
 
-        public double GetLifeSupportProductionPerDay()
+        private void UpdateCachedValues()
         {
-            return GetLifeSupportProductionPerDay(this.Vessel);
-        }
-
-        // Returns how much life support the given vessel will produce per day.
-        public static double GetLifeSupportProductionPerDay(Vessel vessel)
-        {
-            double productionSum = 0.0;
             try
             {
+                cachedCrewCount = 0;
+                cachedCrewCapacity = 0;
+                cachedLifeSupport = 0;
+                cachedMaxLifeSupport = 0;
+                cachedLifeSupportDeltaPerHour = 0;
+                lastUpdate = Planetarium.GetUniversalTime();
+
                 if (vessel.loaded)
                 {
-                    // The vessel is loaded, itrate through the objects:
                     foreach (Part part in vessel.parts)
                     {
-                        foreach (PartModule module in part.Modules)
+                        cachedCrewCount += part.protoModuleCrew.Count;
+                        cachedCrewCapacity += part.CrewCapacity;
+
+                        foreach (PartResource resource in part.Resources)
                         {
-                            if (module.ClassName == typeof(CLLSGenerator).Name)
+                            if (resource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
                             {
-                                productionSum += (double)(module.Fields["currentProductionRatePerDay"].GetValue(module.Fields["currentProductionRatePerDay"].host));
+                                cachedLifeSupport += resource.amount;
+                                cachedMaxLifeSupport += resource.maxAmount;
+                            }
+                        }
+
+                        foreach (CLLSGenerator generator in part.Modules.GetModules<CLLSGenerator>())
+                        {
+                            if (generator.isRunning)
+                            {
+                                cachedLifeSupportDeltaPerHour += generator.currentProductionRatePerDay / 6; // This is stored in kerbin-days
                             }
                         }
                     }
                 }
                 else
                 {
-                    // The vessel is not loaded, parse the stored values:
-                    foreach (ProtoPartSnapshot proto in vessel.protoVessel.protoPartSnapshots)
+                    foreach (ProtoPartSnapshot protoPart in vessel.protoVessel.protoPartSnapshots)
                     {
-                        foreach (ProtoPartModuleSnapshot protoModule in proto.modules)
+                        cachedCrewCount += protoPart.protoModuleCrew.Count;
+                        cachedCrewCapacity += protoPart.partPrefab.CrewCapacity;
+
+                        foreach (ProtoPartResourceSnapshot protoResource in protoPart.resources)
+                        {
+                            if (protoResource.resourceName == CLLS.RESOURCE_LIFE_SUPPORT)
+                            {
+                                cachedLifeSupport += protoResource.amount;
+                                cachedMaxLifeSupport += protoResource.maxAmount;
+                            }
+                        }
+
+                        foreach (ProtoPartModuleSnapshot protoModule in protoPart.modules)
                         {
                             if (protoModule.moduleName == typeof(CLLSGenerator).Name)
                             {
-                                double amount = 0;
-                                System.Double.TryParse(protoModule.moduleValues.GetValue("currentProductionRatePerDay"), out amount);
-                                productionSum += amount;
+                                
+                                if (bool.Parse(protoModule.moduleValues.GetValue("isRunning")))
+                                {
+                                    cachedLifeSupportDeltaPerHour += float.Parse(protoModule.moduleValues.GetValue("currentProductionRatePerDay")) / 6; // This is stored in kerbin-days
+                                }
                             }
                         }
                     }
                 }
-                return productionSum;
+                if (cachedLifeSupport < (1.0 / (6*3600))) cachedLifeSupport = 0; // It can happen that there is a very small amount left in the tanks due to rounding errors
+
+                cachedLifeSupportDeltaPerHour -= cachedCrewCount * CLLS.LIFE_SUPPORT_PER_KERBAL_PER_HOUR;
             }
             catch (Exception e)
             {
-                Debug.LogError("[CLLS] GetLifeSupportProductionPerDay(" + vessel.GetName() + ")" + e.ToString());
-                return 0.0;
-            }
-        }
-
-        // Adds of removes life support from the tracked vessel.
-        public void UpdateLifeSupport(double delta)
-        {
-            if (this.Vessel.loaded)
-            {
-                // We can use the vessel-object to request the desired amount of resources:
-                this.Vessel.rootPart.RequestResource(CLLS.RESOURCE_LIFE_SUPPORT, -delta); // If we want to add -1, we have to request 1
-            }
-            else
-            {
-                // The vessel is currently not loaded into the scene, we have to modify the unloaded configuration, wich
-                // consists of raw string values like in the savegame:
-                foreach (ProtoPartSnapshot proto in this.Vessel.protoVessel.protoPartSnapshots)
-                {
-                    foreach (ProtoPartResourceSnapshot protoResource in proto.resources)
-                    {
-                        if (protoResource.resourceName != CLLS.RESOURCE_LIFE_SUPPORT) continue;
-                        ConfigNode configNode = protoResource.resourceValues;
-                        double amount = 0, maxAmount = 0;
-                        System.Double.TryParse(configNode.GetValue("amount"),out amount);
-                        System.Double.TryParse(configNode.GetValue("maxAmount"),out maxAmount);
-
-                        if (delta > 0)
-                        {
-                            // We want to add some life support:
-                            if (amount + delta > maxAmount)
-                            {
-                                delta -= maxAmount - amount;
-                                amount = maxAmount;
-                            }
-                            else
-                            {
-                                amount += delta;
-                                delta = 0;
-                            }
-                        }
-                        else
-                        {
-                            // We want to reduce the life support:
-                            if (amount + delta < 0)
-                            {
-                                delta += amount;
-                                amount = 0;
-                            }
-                            else
-                            {
-                                amount += delta;
-                                delta = 0;
-                            }
-                        }
-
-                        // Update the part with the new amount:
-                        configNode.SetValue("amount", amount.ToString());
-                    }
-                }
+                Debug.LogError("[CLLS] TrackedVessel.UpdateCachedValues(" + vessel.id + "): " + e.ToString());
             }
         }
 
         // Checks if the tracked vessel is landed on Kerbin.
         public bool IsAtHome()
         {
-            return IsAtHome(this.Vessel);
+            return (vessel.Landed || vessel.Splashed) && vessel.mainBody == FlightGlobals.GetHomeBody();
         }
 
-        // Checks if the given vessel is landed on Kerbin.
-        public static bool IsAtHome(Vessel vessel)
-        {
-            if (vessel.loaded)
-            {
-                return (vessel.Landed || vessel.Splashed) && vessel.mainBody.name.Equals("Kerbin");
-            }
-            else
-            {
-                return (vessel.protoVessel.landed || vessel.protoVessel.splashed) && vessel.mainBody.name.Equals("Kerbin");
-            }
-        }
-
-        // Enables or disables the crew when of the given vessel (sets their type to tourist, which is
-        // basically just an passenger). Kerbals on EVA or with 0xp will be killed when disabled. We do
-        // this because we can't otherwise differenciate disabled kerbals from real tourists and the
-        // tourist-type has no effect on EVA.
-        public static void UpdateCrew(Vessel vessel, bool enableCrew)
+        // Kills all Kerbals on the vessel.
+        public void KillCrew()
         {
             try
             {
-                List<ProtoCrewMember> crewList = vessel.GetVesselCrew();
-                foreach (ProtoCrewMember crewMember in crewList)
+                List<string> deadKerbalNames = new List<string>();
+                if (vessel.loaded)
                 {
-                    if (enableCrew)
+                    if (vessel.isEVA)
                     {
-                        if (crewMember.type == ProtoCrewMember.KerbalType.Tourist && (crewMember.experience > 0 || crewMember.experienceLevel > 0))
-                        {
-                            string msg = string.Format("{0} has woken up from hibernation", crewMember.name);
-                            ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
-                            crewMember.type = ProtoCrewMember.KerbalType.Crew;
-                        }
+                        deadKerbalNames.Add(vessel.GetVesselCrew()[0].name);
+                        vessel.rootPart.explode();
                     }
                     else
                     {
-                        if (crewMember.type != ProtoCrewMember.KerbalType.Tourist)
+                        foreach (Part part in vessel.parts)
                         {
-                            if ((crewMember.experience > 0 || crewMember.experienceLevel > 0) && !vessel.isEVA)
+                            foreach (ProtoCrewMember crewMember in part.protoModuleCrew)
                             {
-                                string msg = string.Format("{0} has gone into hibernation", crewMember.name);
-                                ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
-                                crewMember.type = ProtoCrewMember.KerbalType.Tourist;
-                            }
-                            else
-                            {
-                                string msg = string.Format("{0} has died due to life support failure", crewMember.name);
-                                ScreenMessages.PostScreenMessage(msg, 5f, ScreenMessageStyle.UPPER_CENTER);
+                                crewMember.flightLog.AddEntry(FlightLog.EntryType.Die);
+                                crewMember.ArchiveFlightLog();
                                 crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Dead;
-
-                                // Kerbal has to be removed from the vessel before he can die:
-                                if (vessel.loaded)
-                                {
-                                    vessel.rootPart.RemoveCrewmember(crewMember);
-                                    if (vessel.isEVA) vessel.rootPart.explode(); // Remove from game
-                                }
-                                else
-                                {
-                                    foreach (ProtoPartSnapshot proto in vessel.protoVessel.protoPartSnapshots)
-                                    {
-                                        if (proto.protoModuleCrew.Contains(crewMember)) proto.protoModuleCrew.Remove(crewMember);
-                                    }
-                                    if (vessel.isEVA) FlightGlobals.Vessels.Remove(vessel); // Remove from game
-                                }
                                 crewMember.Die();
+                                deadKerbalNames.Add(crewMember.name);
                             }
+                            part.protoModuleCrew.Clear();
                         }
+                        vessel.MurderCrew(); // This does not seem to work, but lets be safe here
                     }
                 }
+                else
+                {
+                    // Find all crew members:
+                    List<ProtoCrewMember> killList = new List<ProtoCrewMember>();
+                    foreach (ProtoPartSnapshot protoPart in vessel.protoVessel.protoPartSnapshots)
+                    {
+                        if (protoPart.protoModuleCrew == null) continue;
+                        foreach (ProtoCrewMember crewMember in protoPart.protoModuleCrew) killList.Add(crewMember);
+                        protoPart.protoModuleCrew.Clear();
+                        protoPart.protoCrewIndicesBackup.Clear();
+                        protoPart.protoCrewNames.Clear();
+                    }
+
+                    // Kill all crew members:
+                    foreach (ProtoCrewMember crewMember in killList)
+                    {
+                        crewMember.flightLog.AddEntry(FlightLog.EntryType.Die);
+                        crewMember.ArchiveFlightLog();
+                        crewMember.rosterStatus = ProtoCrewMember.RosterStatus.Dead;
+                        if (vessel.isEVA)  FlightGlobals.Vessels.Remove(vessel);
+                        deadKerbalNames.Add(crewMember.name);
+                    }
+                }
+
+                if (deadKerbalNames.Count > 0)
+                {
+                    // Make sure KSP does not bring the dead back to life:
+                    foreach (string kerbalName in deadKerbalNames)
+                    {
+                        if (!CLLS.killList.Contains(kerbalName)) CLLS.killList.Add(kerbalName);
+                    }
+
+                    // Log message about the now dead kerbals:
+                    string message;
+                    if (deadKerbalNames.Count > 1)
+                    {
+                        message = deadKerbalNames.Count.ToString() + " have died due to life support failure: " + String.Join(", ", deadKerbalNames.ToArray());
+                    }
+                    else
+                    {
+                        message = deadKerbalNames[0] + " has died due to life support failure!";
+                    }
+                    Debug.Log("[CLLS] " + message);
+                    ScreenMessages.PostScreenMessage(message, 5f, ScreenMessageStyle.UPPER_CENTER);
+                }
+
+                // Update the tracked vessels during the next tick to maybe remove killed EVA-missions from the tracking-list:
+                CLLS.forceGlobalUpdate = true;
             }
             catch (Exception e)
             {
-                Debug.LogError("[CLLS] UpdateCrew(" + vessel.GetName() + "): " + e.ToString());
+                Debug.LogError("[CLLS] TrackedVessel.KillCrew(" + vessel.id + "): " + e.ToString());
             }
-        }
-
-        public void UpdateCrew(bool enable)
-        {
-            UpdateCrew(this.Vessel, enable);
         }
     }
 }
