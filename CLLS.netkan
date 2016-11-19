@@ -13,6 +13,9 @@
     "resources": {
         "homepage": "http://forum.kerbalspaceprogram.com/index.php?/topic/108297-10x-closed-loop-life-support-v01/"
     },
+    "depends": [
+        { "name": "ModuleManager" }
+    ],
     "install" : [
         {
             "find" : "CLLS",

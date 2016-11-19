@@ -151,8 +151,25 @@ namespace CLLS
                     else
                     {
 
-                        double electricityRequested = TimeWarp.fixedDeltaTime * currentElectricityRatePerSec;
-                        double electricityReceived = this.part.RequestResource("ElectricCharge", electricityRequested); // Scale the amount with while in time-warp.
+                        double electricityRequested = TimeWarp.fixedDeltaTime * currentElectricityRatePerSec; // Scale the amount while in time-warp.
+
+                        // During time-warp the produced and consumed amount of electricity gets scaled, but is requested and proeuced at the same time,
+                        // which means if the time-warp factor is high enoug the requested amount will almost everytime be larger than the storage-capacity,
+                        // resulting in empty batteries. To avoid this we cap the maximum requested amount at 25% of the vessel's storage capacity. If
+                        // the player's vessel does not produce an equal amount, the electricity will still drain to zero, so this isn't necessarily cheating.
+                        if (TimeWarp.fixedDeltaTime > 1) // This is the in-game time-delta between two physics-frames, should be < 1 during realtime.
+                        {
+                            double maxElectricity = 0;
+                            foreach (ProtoPartSnapshot partSnapshot in vessel.protoVessel.protoPartSnapshots.FindAll(x => x.resources.Count > 0))
+                            {
+                                foreach (ProtoPartResourceSnapshot resourceSnapshot in partSnapshot.resources.FindAll(x => x.resourceName == "ElectricCharge"))
+                                {
+                                    maxElectricity += resourceSnapshot.maxAmount;
+                                }
+                            }
+                            if (electricityRequested > maxElectricity * 0.25) electricityRequested = maxElectricity * 0.25;
+                        }
+                        double electricityReceived = this.part.RequestResource("ElectricCharge", electricityRequested);
 
                         // We will produce less life support if we don't receive the full amount of electricity:
                         efficiency = electricityReceived / electricityRequested;
