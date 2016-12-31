@@ -5,7 +5,7 @@
     "name"         : "Closed Loop Life Support",
     "abstract"     : "Simple life support mod which adds a life support resource that is consumed by kerbals and can be produced by special generators to create self-sufficient ships and stations.",
     "license"      : "CC-BY-NC-SA-4.0",
-    "ksp_version"  : "1.2.1",
+    "ksp_version"  : "1.2.2",
     "author"       : "mm",
     "x_netkan_github": {
         "use_source_archive": true
