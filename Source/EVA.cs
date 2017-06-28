@@ -41,6 +41,9 @@ namespace CLLS
                 }
                 lifeSupport = action.from.RequestResource(CLLS.RESOURCE_LIFE_SUPPORT, lifeSupport);
                 lifeSupport = action.to.RequestResource(CLLS.RESOURCE_LIFE_SUPPORT, -lifeSupport);
+
+                // Update list of vessels during the next tick to remove EVA "vessel":
+                CLLS.forceGlobalUpdate = true;
             }
             catch (Exception e)
             {

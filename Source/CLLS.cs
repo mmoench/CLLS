@@ -133,13 +133,9 @@ namespace CLLS
                 // Find vessels, which were removed:
                 List<Guid> existingIds = new List<Guid>();
                 foreach (Vessel vessel in FlightGlobals.Vessels) existingIds.Add(vessel.id);
-                List<TrackedVessel> trackedVesselsToRemove = trackedVessels.FindAll(x => !existingIds.Contains(x.vessel.id));
+                List<TrackedVessel> trackedVesselsToRemove = trackedVessels.FindAll(x => x?.vessel?.id == null || !existingIds.Contains(x.vessel.id));
                 foreach (TrackedVessel trackedVessel in trackedVesselsToRemove)
                 {
-                    string name = "N/A";
-                    string id = "N/A";
-                    if (trackedVessel?.vessel?.name != null) name = trackedVessel.vessel.name;
-                    if (trackedVessel?.vessel?.id != null) id = trackedVessel.vessel.id.ToString();
                     trackedVessels.Remove(trackedVessel);
                     trackingsRemoved++;
                 }
